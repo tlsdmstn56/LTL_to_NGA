@@ -3,6 +3,9 @@
 
 int main()
 {
-    std::cout << "Hello, World!" << std::endl;
+    auto ltl = reader::read_formula();
+
+    std::cout << "Not end\n";
+
     return 0;
 }
