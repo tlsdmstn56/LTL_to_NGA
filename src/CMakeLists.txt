@@ -1,6 +1,7 @@
 ##################################### libLtl.a #####################################
 add_library(Ltl STATIC
         ltl/ltl.cpp
+        ltl/closure.cpp
         utils/reader.cpp
 )
 

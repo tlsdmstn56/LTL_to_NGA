@@ -25,9 +25,11 @@ std::shared_ptr<ltl::ltl> read_formula(const bool negation = false)
             case 'f':
                 return ltl::ltl_constant::construct((ch == 't') == negation);
             case 'p':
+                // FIXME: another approach
                 if (1 == scanf("%u", &ch))
                     return ltl::ltl_atom::construct(negation, ch);
-                fputs("error in proposition number\n", stderr);
+                // TODO: log
+                std::cout << "Error in proposition number\n";
                 return nullptr;
             case '!':
                 return read_formula(!negation);
