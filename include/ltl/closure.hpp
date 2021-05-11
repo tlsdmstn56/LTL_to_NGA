@@ -160,12 +160,29 @@ private:
                                 continue;
                             return false;
                         }
-                        /// WIP: rule R2 neg (mine)
+                        /// rule R2 neg (mine): !a R !b in s <=> (!a^!b in s) OR (!b in s AND !a R !b in sd)
                         case ltl::kind::until:
                         {
-                            // TODO: consult!!!
-                            std::cout << "WARNING: need to consult (negative until for the R2 rule)\n";
-                            break;
+                            auto a = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_left;
+                            auto b = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_right;
+                            auto neg_a = ltl_negation::construct(std::move(a));
+                            auto neg_b = ltl_negation::construct(std::move(b));
+
+                            // calculate before move
+                            const bool is_neg_b_in_s = std::any_of(s.begin(), s.end(), [&neg_b](const auto &nd_s)
+                                                                    { return nd_s == neg_b; });
+
+                            const auto conjunction = ltl_conjunction::construct(std::move(neg_a), std::move(neg_b));
+                            bool is_con_in_s = std::any_of(s.begin(), s.end(), [&conjunction](const auto &nd_s)
+                                                            { return nd_s == conjunction; });
+
+                            bool is_node_s_in_sd = std::any_of(sd.begin(), sd.end(), [&node_s](const auto &node_sd)
+                                                                { return node_sd == node_s; });
+
+                            if (is_con_in_s || (is_neg_b_in_s && is_node_s_in_sd))
+                                continue;
+
+                            return false;
                         }
                         case ltl::kind::negation:
                             assert("Shouldn't happen");
@@ -265,8 +282,8 @@ private:
                             // calculate before exit
                             const bool is_neg_right_in = find_fn(neg_right);
 
-                            const auto conjunction = ltl_conjunction::construct(std::move(neg_right),
-                                                                                std::move(neg_left));
+                            const auto conjunction = ltl_conjunction::construct(std::move(neg_left),
+                                                                                std::move(neg_right));
 
                             // TODO: consult!!!
                             /// rule MINE: !(a U b) = !a R !b = al
