@@ -130,7 +130,7 @@ class ltl_conjunction : public ltl
 {
 public:
 
-    static node_t construct(node_t &&right, node_t &&left)
+    static node_t construct(node_t &&left, node_t &&right)
     {
         //assert(left && right && "Empty inner formula");
         if (!left || !right)
@@ -214,7 +214,7 @@ class ltl_until : public ltl
 {
 public:
 
-    static node_t construct(node_t &&right, node_t &&left)
+    static node_t construct(node_t &&left, node_t &&right)
     {
         //assert(left && right && "Empty inner formula");
         if (!left || !right)

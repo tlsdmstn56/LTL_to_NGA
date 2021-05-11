@@ -26,10 +26,10 @@ public:
         return std::shared_ptr<converting>(new converting(std::move(formula)));
     }
 
-    const state_t& get_concrete_state(const size_t index)
-    {
-        return m_atomic_plurality[index];
-    }
+    [[nodiscard]]
+    const state_t& get_concrete_state(const size_t index) const { return m_atomic_plurality[index]; }
+    [[nodiscard]]
+    const std::set<uint32_t>& get_atomic_propositions() const  { return p_indexes; }
 
     /// \return A, f, A_0, F
     std::tuple<indexes_container_t, table_t, indexes_container_t, std::vector<indexes_container_t>> ltl_to_nga()
@@ -107,7 +107,7 @@ public:
 private:
     explicit converting(ltl::node_t&& formula) : m_formula(std::move(formula))
     {
-        fill_closure();
+        fill_closure(m_formula);
         generate_atomic_plurality();
     }
 
@@ -192,9 +192,9 @@ private:
 
     // TODO: optimize!!! (depth 2^ln(formula))
     static void recursive_brute_force(std::vector<state_t> &states, const state_t &pos, const state_t &neg,
-                               int ip = -1, int in = -1, state_t curr = {})
+                                      size_t ip = 0, size_t in = 0, state_t curr = {})
     {
-        if (ip >= pos.size() && in >= neg.size())
+        if (curr.size() == pos.size())
         {
             if (is_correct_atomic(curr))
                 states.emplace_back(curr);
@@ -208,7 +208,8 @@ private:
             curr.pop_back();
         }
 
-        if (in < neg.size()){
+        if (in < neg.size())
+        {
             curr.emplace_back(neg[in]);
             recursive_brute_force(states, pos, neg, ip, in+1, curr);
             curr.pop_back();
@@ -245,8 +246,8 @@ private:
                             break;
                         case ltl::kind::conjunction:
                         {
-                            auto left = std::dynamic_pointer_cast<ltl_conjunction>(f)->m_left;
-                            auto right = std::dynamic_pointer_cast<ltl_conjunction>(f)->m_right;
+                            auto left = std::dynamic_pointer_cast<ltl_conjunction>(pos)->m_left;
+                            auto right = std::dynamic_pointer_cast<ltl_conjunction>(pos)->m_right;
                             const auto neg_left = ltl_negation::construct(std::move(left));
                             const auto neg_right = ltl_negation::construct(std::move(right));
 
@@ -258,8 +259,8 @@ private:
                         }
                         case ltl::kind::until:
                         {
-                            auto left = std::dynamic_pointer_cast<ltl_until>(f)->m_left;
-                            auto right = std::dynamic_pointer_cast<ltl_until>(f)->m_right;
+                            auto left = std::dynamic_pointer_cast<ltl_until>(pos)->m_left;
+                            auto right = std::dynamic_pointer_cast<ltl_until>(pos)->m_right;
                             auto neg_left = ltl_negation::construct(std::move(left));
                             auto neg_right = ltl_negation::construct(std::move(right));
 
@@ -312,28 +313,56 @@ private:
         return true;
     }
 
-    void fill_closure()
+    void fill_closure(const ltl::node_t& formula)
     {
-        const auto& node = m_formula->get_kind() == ltl::kind::negation ?
-                            std::dynamic_pointer_cast<ltl_negation>(m_formula)->m_formula :
-                            m_formula;
-
-        for (const auto &it : m_closure_storage)
-            if (it == node)
+        switch (formula->get_kind())
+        {
+            case ltl::kind::negation:
+                fill_closure(std::dynamic_pointer_cast<ltl_negation>(formula)->m_formula);
                 return;
 
-        // AP saving
-        if (node->get_kind() == ltl::kind::atom)
-        {
-            [[maybe_unused]] auto [_, suc] = p_indexes.insert(std::dynamic_pointer_cast<ltl_atom>(node)->m_index);
-            assert(suc && "Duplicate shouldn't appear by code idea");
+            case ltl::kind::one:
+                break;
+            case ltl::kind::atom:
+            {
+                // AP saving
+                p_indexes.insert(std::dynamic_pointer_cast<ltl_atom>(formula)->m_index);
+                break;
+            }
+            case ltl::kind::conjunction:
+            {
+                fill_closure(std::dynamic_pointer_cast<ltl_conjunction>(formula)->m_left);
+                fill_closure(std::dynamic_pointer_cast<ltl_conjunction>(formula)->m_right);
+                break;
+            }
+            case ltl::kind::next:
+            {
+                fill_closure(std::dynamic_pointer_cast<ltl_next>(formula)->m_xformula);
+                break;
+            }
+            case ltl::kind::until:
+            {
+                // until counter that will be helpful during algorithm
+                ++m_until_count;
+                fill_closure(std::dynamic_pointer_cast<ltl_until>(formula)->m_left);
+                fill_closure(std::dynamic_pointer_cast<ltl_until>(formula)->m_right);
+                break;
+            }
+            default:
+                assert("Shouldn't happen - we must cover all cases");
+                break;
         }
 
-        // until counter that will be helpful during algorithm
-        if (node->get_kind() == ltl::kind::until)
-            ++m_until_count;
+        add_to_closure(formula);
+    }
 
-        m_closure_storage.emplace_back(node);
+    void add_to_closure(const ltl::node_t& formula)
+    {
+        for (const auto &it : m_closure_storage)
+            if (it == formula)
+                return;
+
+        m_closure_storage.emplace_back(formula);
     }
 
     const ltl::node_t m_formula{nullptr};
