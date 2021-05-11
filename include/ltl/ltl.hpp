@@ -14,102 +14,125 @@ namespace ltl
 class ltl
 {
 public:
-    using proposition_t = std::shared_ptr<ltl>;
+    using node_t = std::shared_ptr<ltl>;
 
     enum class kind : uint8_t
     {
         undefined = 0,
+        one,
         atom,
-        constant,
-        junct,
+        negation,
+        conjunction,
         next,
         until
     };
 
     [[nodiscard]] kind get_kind() const { return m_kind; };
 
-    explicit ltl(const kind kind, bool not_flag)
-            : m_kind(kind), m_not(not_flag) {};
+    friend bool operator== (const node_t& left, const node_t& right);
 
-    [[nodiscard]] bool is_negative() const { return m_not; };
+    virtual ~ltl() = default;
 
-    // FIXME: recursive approach is awful here, but I didn't have time to rework it
-    [[nodiscard]] virtual proposition_t construct_negative() const = 0;
-
-    friend bool operator== (const proposition_t& left, const proposition_t& right);
+protected:
+    explicit ltl(const kind kind) : m_kind(kind) {};
 
 private:
     const kind m_kind {kind::undefined};
-    const bool m_not{false};
+};
+
+class ltl_one : public ltl
+{
+public:
+
+    static node_t construct()
+    {
+        return std::shared_ptr<ltl_one>(new ltl_one());
+    }
+
+    friend bool operator== (const std::shared_ptr<ltl_one>& left, const std::shared_ptr<ltl_one>& right)
+    {
+        return true;
+    }
+
+private:
+    explicit ltl_one()
+            : ltl(kind::one)
+    {}
 };
 
 class ltl_atom : public ltl
 {
 public:
 
-    static proposition_t construct(bool is_false, uint32_t num)
+    static node_t construct(uint32_t num)
     {
-        return std::shared_ptr<ltl_atom>(new ltl_atom(is_false, num));
+        return std::shared_ptr<ltl_atom>(new ltl_atom(num));
     }
 
     ~ltl_atom()
     {
-        std::cout << "Atom distruct " << (is_negative() ? "! " : "") << m_index << "\n";
-    }
-
-    [[nodiscard]]
-    proposition_t construct_negative() const final
-    {
-        return std::shared_ptr<ltl_atom>(new ltl_atom(!is_negative(), m_index));
+        std::cout << "Atom distruct " << m_index << "\n";
     }
 
     friend bool operator== (const std::shared_ptr<ltl_atom>& left, const std::shared_ptr<ltl_atom>& right)
     {
-        return left->m_index == right->m_index && left->is_negative() == right->is_negative();
+        return left->m_index == right->m_index;
     }
 
     // TODO: is this atm_size type?
     const uint32_t m_index{0};
 
 private:
-    explicit ltl_atom(bool is_negative, uint32_t index)
-            : ltl(kind::atom, is_negative), m_index(index)
+    explicit ltl_atom(uint32_t index)
+            : ltl(kind::atom), m_index(index)
     {}
 
 };
 
-class ltl_constant : public ltl
+class ltl_negation : public ltl
 {
 public:
 
-    static proposition_t construct(bool is_false)
+    static node_t construct(node_t &&formula)
     {
-        return std::shared_ptr<ltl_constant>(new ltl_constant(is_false));
+        //assert(formula && "Empty inner formula");
+        if (!formula)
+        {
+            // TODO: log
+            std::cout << "ERROR: Empty inner formula\n";
+            return nullptr;
+        }
+
+        // optimization block with negative child
+        if (formula->get_kind() == ltl::kind::negation)
+            return std::dynamic_pointer_cast<ltl_negation>(formula)->m_formula;
+
+        return std::shared_ptr<ltl_negation>(new ltl_negation(formula));
     }
 
-    [[nodiscard]]
-    proposition_t construct_negative() const final
+    friend bool operator== (const std::shared_ptr<ltl_negation>& left, const std::shared_ptr<ltl_negation>& right)
     {
-        return std::shared_ptr<ltl_constant>(new ltl_constant(!is_negative()));
+        return left->m_formula == right->m_formula;
     }
 
-    friend bool operator== (const std::shared_ptr<ltl_constant>& left, const std::shared_ptr<ltl_constant>& right)
-    {
-        return left->is_negative() == right->is_negative();
-    }
+    const node_t m_formula{nullptr};
 
 private:
-    explicit ltl_constant(bool is_false)
-            : ltl(kind::constant, is_false)
-    {}
+    explicit ltl_negation(node_t formula)
+            : ltl(kind::negation), m_formula(std::move(formula))
+    {
+        assert(m_formula && "Formula should be set");
+        assert(m_formula->get_kind() != ltl::kind::negation && "Inner formula can't be negative");
+    }
 };
 
-class ltl_junct : public ltl
+class ltl_conjunction : public ltl
 {
 public:
 
-    static proposition_t construct(bool is_disjunction, proposition_t &&right, proposition_t &&left)
+    static node_t construct(node_t &&right, node_t &&left)
     {
+        //assert(left && right && "Empty inner formula");
         if (!left || !right)
         {
             // TODO: log
@@ -117,37 +140,37 @@ public:
             return nullptr;
         }
 
-        // optimization block
-        if (left->get_kind() == ltl::kind::constant)
-            return left->is_negative() == is_disjunction ? right : left;
-        if (right->get_kind() == ltl::kind::constant)
-            return right->is_negative() == is_disjunction ? left : right;
+        // optimization block with true/false child
+        if (left->get_kind() == ltl::kind::one)
+            return right;
+        if (right->get_kind() == ltl::kind::one)
+            return left;
+        if ((left->get_kind() == ltl::kind::negation &&
+            std::dynamic_pointer_cast<ltl_negation>(left)->m_formula->get_kind() == ltl::kind::one) ||
+            (right->get_kind() == ltl::kind::negation &&
+            std::dynamic_pointer_cast<ltl_negation>(right)->m_formula->get_kind() == ltl::kind::one))
+        {
+            return ltl_negation::construct(ltl_one::construct());
+        }
+        // optimization block with equal children
         if (left == right)
             return left;
 
-        return std::shared_ptr<ltl_junct>(new ltl_junct(is_disjunction, left, right));
+        return std::shared_ptr<ltl_conjunction>(new ltl_conjunction(left, right));
     }
 
-    [[nodiscard]]
-    proposition_t construct_negative() const final
+    friend bool operator== (const std::shared_ptr<ltl_conjunction>& left, const std::shared_ptr<ltl_conjunction>& right)
     {
-        return std::shared_ptr<ltl_junct>(
-                new ltl_junct(!is_negative(), m_left->construct_negative(), m_right->construct_negative()));
-    }
-
-    friend bool operator== (const std::shared_ptr<ltl_junct>& left, const std::shared_ptr<ltl_junct>& right)
-    {
-        return left->is_negative() == right->is_negative() &&
-                ((left->m_left == right->m_left && left->m_right == right->m_right) ||
+        return ((left->m_left == right->m_left && left->m_right == right->m_right) ||
                 (left->m_left == right->m_right && left->m_right == right->m_left));
     }
 
-    const proposition_t m_left{nullptr};
-    const proposition_t m_right{nullptr};
+    const node_t m_left{nullptr};
+    const node_t m_right{nullptr};
 
 private:
-    explicit ltl_junct(bool is_disjunction, proposition_t left, proposition_t right)
-            : ltl(kind::junct, is_disjunction), m_left(std::move(left)), m_right(std::move(right))
+    explicit ltl_conjunction(node_t left, node_t right)
+            : ltl(kind::conjunction), m_left(std::move(left)), m_right(std::move(right))
     {
         assert(m_left && m_right && "Left and Right should be set");
     }
@@ -158,36 +181,31 @@ class ltl_next : public ltl
 {
 public:
 
-    static proposition_t construct(proposition_t &&formula)
+    static node_t construct(node_t &&xformula)
     {
-        if (!formula)
+        //assert(xformula && "Empty inner formula");
+        if (!xformula)
         {
             // TODO: log
             std::cout << "ERROR: Empty inner formula\n";
             return nullptr;
         }
 
-        return std::shared_ptr<ltl_next>(new ltl_next(formula));
-    }
-
-    [[nodiscard]]
-    proposition_t construct_negative() const final
-    {
-        return std::shared_ptr<ltl_next>(new ltl_next(m_formula->construct_negative()));
+        return std::shared_ptr<ltl_next>(new ltl_next(xformula));
     }
 
     friend bool operator== (const std::shared_ptr<ltl_next>& left, const std::shared_ptr<ltl_next>& right)
     {
-        return left->m_formula == right->m_formula;
+        return left->m_xformula == right->m_xformula;
     }
 
-    const proposition_t m_formula{nullptr};
+    const node_t m_xformula{nullptr};
 
 private:
-    explicit ltl_next(proposition_t formula)
-            : ltl(kind::next, false), m_formula(std::move(formula))
+    explicit ltl_next(node_t formula)
+            : ltl(kind::next), m_xformula(std::move(formula))
     {
-        assert(m_formula && "Formula should be set");
+        assert(m_xformula && "Formula should be set");
     }
 
 };
@@ -196,8 +214,9 @@ class ltl_until : public ltl
 {
 public:
 
-    static proposition_t construct(bool is_release, proposition_t &&right, proposition_t &&left)
+    static node_t construct(node_t &&right, node_t &&left)
     {
+        //assert(left && right && "Empty inner formula");
         if (!left || !right)
         {
             // TODO: log
@@ -205,36 +224,27 @@ public:
             return nullptr;
         }
 
-        return std::shared_ptr<ltl_until>(new ltl_until(is_release, left, right));
-    }
-
-    [[nodiscard]]
-    proposition_t construct_negative() const final
-    {
-        return std::shared_ptr<ltl_until>(
-                new ltl_until(!is_negative(), m_left->construct_negative(), m_right->construct_negative()));
+        return std::shared_ptr<ltl_until>(new ltl_until(left, right));
     }
 
     friend bool operator== (const std::shared_ptr<ltl_until>& left, const std::shared_ptr<ltl_until>& right)
     {
-        return left->is_negative() == right->is_negative() &&
-                ((left->m_left == right->m_left && left->m_right == right->m_right) ||
-                (left->m_left == right->m_right && left->m_right == right->m_left));
+        return left->m_left == right->m_left && left->m_right == right->m_right;
     }
 
-    const proposition_t m_left{nullptr};
-    const proposition_t m_right{nullptr};
+    const node_t m_left{nullptr};
+    const node_t m_right{nullptr};
 
 private:
-    explicit ltl_until(bool is_release, proposition_t left, proposition_t right)
-            : ltl(kind::until, is_release), m_left(std::move(left)), m_right(std::move(right))
+    explicit ltl_until(node_t left, node_t right)
+            : ltl(kind::until), m_left(std::move(left)), m_right(std::move(right))
     {
         assert(m_left && m_right && "Left and Right should be set");
     }
 
 };
 
-bool operator== (const ltl::proposition_t& left, const ltl::proposition_t& right)
+bool operator== (const ltl::node_t& left, const ltl::node_t& right)
 {
     if (left->get_kind() == right->get_kind())
     {
@@ -247,12 +257,14 @@ bool operator== (const ltl::proposition_t& left, const ltl::proposition_t& right
 
         switch(left->get_kind())
         {
-            case ltl::kind::constant:
-                return fn.operator()<ltl_constant>();
+            case ltl::kind::one:
+                return fn.operator()<ltl_one>();
             case ltl::kind::atom:
                 return fn.operator()<ltl_atom>();
-            case ltl::kind::junct:
-                return fn.operator()<ltl_junct>();
+            case ltl::kind::negation:
+                return fn.operator()<ltl_negation>();
+            case ltl::kind::conjunction:
+                return fn.operator()<ltl_conjunction>();
             case ltl::kind::next:
                 return fn.operator()<ltl_next>();
             case ltl::kind::until:

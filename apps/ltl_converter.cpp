@@ -6,7 +6,8 @@ int main()
 {
     auto ltl = reader::read_formula();
 
-    ltl::closure::construct(ltl);
+    auto algo = ltl::converting::construct(ltl);
+    auto tuple = algo->ltl_to_nga();
 
     std::cout << "Not end\n";
 
