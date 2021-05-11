@@ -17,7 +17,7 @@ class converting
 {
 public:
     using state_t = std::vector<ltl::node_t>;
-    using indexes_container_t = std::vector<size_t>;
+    using indexes_container_t = std::set<size_t>;
     // index of At -> first -- alph, second -- next states indexes of At
     using table_t = std::vector<std::pair<std::set<uint32_t>, indexes_container_t>>;
 
@@ -45,21 +45,22 @@ public:
         {
             const state_t &s = At[i];
             if (std::any_of(s.begin(), s.end(), [this](const ltl::node_t& it) { return it == m_formula; }))
-                A_0_indexes.push_back(i);
+                A_0_indexes.insert(i);
         }
 
         indexes_container_t C_indexes = A_0_indexes;
         while (!C_indexes.empty())
         {
-            const size_t s_index = C_indexes.back();
+            const size_t s_index = *C_indexes.begin();
+            C_indexes.erase(s_index);
             const state_t &s = At[s_index];
-            C_indexes.pop_back();
 
-            A.emplace_back(s_index);
+            A.insert(s_index);
 
             int i = 0;
             for (const ltl::node_t &alpha : m_closure_storage)
             {
+                // TODO: consult!! about ! U case
                 /// rule Z1
                 if (alpha->get_kind() == ltl::kind::until)
                 {
@@ -69,7 +70,7 @@ public:
                                     [right = std::dynamic_pointer_cast<ltl_until>(alpha)->m_right]
                                     (const ltl::node_t &it) { return it == right; });
                     if (!is_alpha_in_s || is_q_in_s)
-                        F[i].emplace_back(s_index);
+                        F[i].insert(s_index);
                     // till next until
                     ++i;
                 }
@@ -81,9 +82,10 @@ public:
                 /// rule R1-R2
                 if (is_satisfies_r_rules(s, At[sd_index]))
                 {
+                    next_states_indexes.insert(sd_index);
                     if (!std::any_of(A.begin(), A.end(),
                                      [&sd_index](const size_t &it) { return it == sd_index; }))
-                        C_indexes.push_back(sd_index);
+                        C_indexes.insert(sd_index);
                 }
             }
 
@@ -122,10 +124,10 @@ private:
                 case ltl::kind::next:
                 {
                     const auto &a = std::dynamic_pointer_cast<ltl_next>(node_s)->m_xformula;
-                    if (!std::any_of(sd.begin(), sd.end(), [&a](const auto &node_sd)
+                    if (std::any_of(sd.begin(), sd.end(), [&a](const auto &node_sd)
                                     { return node_sd == a; }))
-                        return false;
-                    break;
+                        continue;
+                    return false;
                 }
                 /// rule R2
                 case ltl::kind::until:
@@ -190,30 +192,26 @@ private:
         recursive_brute_force(m_atomic_plurality, m_closure_storage, neg_storage);
     }
 
-    // TODO: optimize!!! (depth 2^ln(formula))
     static void recursive_brute_force(std::vector<state_t> &states, const state_t &pos, const state_t &neg,
-                                      size_t ip = 0, size_t in = 0, state_t curr = {})
+                                      state_t curr = {}, size_t i = 0)
     {
-        if (curr.size() == pos.size())
+        assert(pos.size() == neg.size());
+        // initialization of input default parameter
+        if (i == 0)
+            curr = state_t{pos.size(), nullptr};
+
+        if (i == pos.size())
         {
             if (is_correct_atomic(curr))
                 states.emplace_back(curr);
             return;
         }
 
-        if (ip < pos.size())
-        {
-            curr.emplace_back(pos[ip]);
-            recursive_brute_force(states, pos, neg, ip+1, in, curr);
-            curr.pop_back();
-        }
+        curr[i] = pos[i];
+        recursive_brute_force(states, pos, neg, curr, i+1);
 
-        if (in < neg.size())
-        {
-            curr.emplace_back(neg[in]);
-            recursive_brute_force(states, pos, neg, ip, in+1, curr);
-            curr.pop_back();
-        }
+        curr[i] = neg[i];
+        recursive_brute_force(states, pos, neg, curr, i+1);
     }
 
     static bool is_correct_atomic(const state_t &atomic)
