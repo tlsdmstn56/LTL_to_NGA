@@ -21,9 +21,9 @@ public:
     // index of At -> first -- alph, second -- next states indexes of At
     using table_t = std::vector<std::pair<std::set<uint32_t>, indexes_container_t>>;
 
-    static std::shared_ptr<converting> construct(ltl::node_t formula)
+    static std::shared_ptr<converting> construct(const ltl::node_t& formula)
     {
-        return std::shared_ptr<converting>(new converting(std::move(formula)));
+        return std::shared_ptr<converting>(new converting(formula));
     }
 
     [[nodiscard]]
@@ -107,7 +107,7 @@ public:
     }
 
 private:
-    explicit converting(ltl::node_t&& formula) : m_formula(std::move(formula))
+    explicit converting(const ltl::node_t& formula)
     {
         fill_closure(m_formula);
         generate_atomic_plurality();
@@ -150,7 +150,7 @@ private:
                     const auto &neg_node_s = std::dynamic_pointer_cast<ltl_negation>(node_s)->m_formula;
                     switch (neg_node_s->get_kind())
                     {
-                        /// rule R1 neg (mine)
+                        /// rule R1 neg: !Xa in s = X!a in s
                         case ltl::kind::next:
                         {
                             auto a = std::dynamic_pointer_cast<ltl_next>(neg_node_s)->m_xformula;
@@ -160,27 +160,21 @@ private:
                                 continue;
                             return false;
                         }
-                        /// rule R2 neg (mine): !a R !b in s <=> (!a^!b in s) OR (!b in s AND !a R !b in sd)
+                        /// rule R2 neg: ! (a U b) in s = !b in s && (!a in s || !(a U b) in s)
                         case ltl::kind::until:
                         {
                             auto a = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_left;
                             auto b = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_right;
-                            auto neg_a = ltl_negation::construct(std::move(a));
-                            auto neg_b = ltl_negation::construct(std::move(b));
 
-                            // calculate before move
-                            const bool is_neg_b_in_s = std::any_of(s.begin(), s.end(), [&neg_b](const auto &nd_s)
-                                                                    { return nd_s == neg_b; });
+                            const bool is_b_in_s = std::any_of(s.begin(), s.end(), [&b](const auto &nd_s)
+                                                                    { return nd_s == b; });
+                            const bool is_a_in_s = std::any_of(s.begin(), s.end(), [&a](const auto &nd_s)
+                                                                    { return nd_s == a; });
+                            const bool is_neg_node_s_in_sd = std::any_of(sd.begin(), sd.end(), [&neg_node_s](const auto &node_sd)
+                                                                { return node_sd == neg_node_s; });
 
-                            const auto conjunction = ltl_conjunction::construct(std::move(neg_a), std::move(neg_b));
-                            bool is_con_in_s = std::any_of(s.begin(), s.end(), [&conjunction](const auto &nd_s)
-                                                            { return nd_s == conjunction; });
-
-                            bool is_node_s_in_sd = std::any_of(sd.begin(), sd.end(), [&node_s](const auto &node_sd)
-                                                                { return node_sd == node_s; });
-
-                            if (is_con_in_s || (is_neg_b_in_s && is_node_s_in_sd))
-                                continue;
+                            if (!is_b_in_s && (!is_a_in_s || !is_neg_node_s_in_sd))
+                                 continue;
 
                             return false;
                         }
@@ -274,21 +268,11 @@ private:
                         }
                         case ltl::kind::until:
                         {
+                            // rule 3-4 for not a U b in s
                             auto left = std::dynamic_pointer_cast<ltl_until>(pos)->m_left;
                             auto right = std::dynamic_pointer_cast<ltl_until>(pos)->m_right;
-                            auto neg_left = ltl_negation::construct(std::move(left));
-                            auto neg_right = ltl_negation::construct(std::move(right));
 
-                            // calculate before exit
-                            const bool is_neg_right_in = find_fn(neg_right);
-
-                            const auto conjunction = ltl_conjunction::construct(std::move(neg_left),
-                                                                                std::move(neg_right));
-
-                            // TODO: consult!!!
-                            /// rule MINE: !(a U b) = !a R !b = al
-                            // if al in atomic then !a^!b OR !b should be in atomic
-                            if (is_neg_right_in || find_fn(conjunction))
+                            if (!find_fn(right))
                                 continue;
 
                             return false;
