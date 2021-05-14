@@ -30,25 +30,19 @@ public:
     const state_t& get_concrete_state(const size_t index) const { return m_atomic_plurality[index]; }
     [[nodiscard]]
     const std::set<uint32_t>& get_atomic_propositions() const  { return p_indexes; }
+    [[nodiscard]]
+    const indexes_container_t& get_initial_states() const { return m_A_0_indexes; }
 
-    /// \return A, f, A_0, F
-    std::tuple<indexes_container_t, table_t, indexes_container_t, std::vector<indexes_container_t>> ltl_to_nga()
+    /// \return A, f, F
+    [[nodiscard]]
+    std::tuple<indexes_container_t, table_t, std::vector<indexes_container_t>> ltl_to_nga() const
     {
         const std::vector<state_t> &At = m_atomic_plurality;
         indexes_container_t A{};
         std::vector<indexes_container_t> F{m_until_count};
         table_t f{At.size()};
 
-        // initial state calculation
-        indexes_container_t A_0_indexes{};
-        for (size_t i = 0; i < At.size(); ++i)
-        {
-            const state_t &s = At[i];
-            if (std::any_of(s.begin(), s.end(), [this](const ltl::node_t& it) { return it == m_formula; }))
-                A_0_indexes.insert(i);
-        }
-
-        indexes_container_t C_indexes = A_0_indexes;
+        indexes_container_t C_indexes = m_A_0_indexes;
         while (!C_indexes.empty())
         {
             const size_t s_index = *C_indexes.begin();
@@ -60,19 +54,32 @@ public:
             int i = 0;
             for (const ltl::node_t &alpha : m_closure_storage)
             {
-                // TODO: consult!! about ! U case
-                /// rule Z1
-                if (alpha->get_kind() == ltl::kind::until)
+                const auto z1_rule = [&](const auto& until_alpha)
                 {
                     const bool is_alpha_in_s = std::any_of(s.begin(), s.end(),
-                                     [&alpha](const ltl::node_t &it) { return it == alpha; });
+                                     [&until_alpha](const ltl::node_t &it) { return it == until_alpha; });
                     const bool is_q_in_s = std::any_of(s.begin(), s.end(),
-                                    [right = std::dynamic_pointer_cast<ltl_until>(alpha)->m_right]
+                                    [right = std::dynamic_pointer_cast<ltl_until>(until_alpha)->m_right]
                                     (const ltl::node_t &it) { return it == right; });
                     if (!is_alpha_in_s || is_q_in_s)
                         F[i].insert(s_index);
                     // till next until
                     ++i;
+                };
+
+                // TODO: consult!! about ! U case
+                /// rule Z1
+                if (alpha->get_kind() == ltl::kind::until)
+                {
+                    z1_rule(alpha);
+                }
+                if (alpha->get_kind() == ltl::kind::negation)
+                {
+                    const auto pos_alpha = std::dynamic_pointer_cast<ltl_negation>(alpha)->m_formula;
+                    if (pos_alpha->get_kind() == ltl::kind::until)
+                    {
+                        z1_rule(pos_alpha);
+                    }
                 }
             }
 
@@ -103,14 +110,15 @@ public:
 
         }
 
-        return std::make_tuple(A, f, A_0_indexes, F);
+        return std::make_tuple(A, f, F);
     }
 
 private:
     explicit converting(const ltl::node_t& formula)
     {
-        fill_closure(m_formula);
+        fill_closure(formula);
         generate_atomic_plurality();
+        detect_initial_states(formula);
     }
 
     /// rules R1-R2 + modified with neg
@@ -192,6 +200,19 @@ private:
         }
 
         return true;
+    }
+
+    /// \brief Initial state calculation. Save in @m_A_0_indexes
+    /// \param formula: LTL-formula from input
+    void detect_initial_states(const ltl::node_t &formula)
+    {
+        m_A_0_indexes.clear();
+        for (size_t i = 0; i < m_atomic_plurality.size(); ++i)
+        {
+            const state_t &s = m_atomic_plurality[i];
+            if (std::any_of(s.begin(), s.end(), [&formula](const ltl::node_t& it) { return it == formula; }))
+                m_A_0_indexes.insert(i);
+        }
     }
 
     void generate_atomic_plurality()
@@ -364,11 +385,12 @@ private:
         m_closure_storage.emplace_back(formula);
     }
 
-    const ltl::node_t m_formula{nullptr};
     std::set<uint32_t> p_indexes{};
     size_t m_until_count{0};
     std::vector<ltl::node_t> m_closure_storage{};
     std::vector<std::vector<ltl::node_t>> m_atomic_plurality{};
+
+    indexes_container_t m_A_0_indexes{};
 };
 
 } // namespace ltl

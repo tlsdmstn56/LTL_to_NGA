@@ -8,6 +8,7 @@ int main()
 
     auto algo = ltl::converting::construct(ltl);
     auto tuple = algo->ltl_to_nga();
+    auto initial_states = algo->get_initial_states();
 
     std::cout << "Not end\n";
 
