@@ -4,13 +4,17 @@
 
 int main()
 {
-    auto ltl = reader::read_formula();
+    auto algo = ltl::converting::construct(reader::read_formula());
+    auto automaton = algo->get_automaton_representation();
 
-    auto algo = ltl::converting::construct(ltl);
-    auto tuple = algo->ltl_to_nga();
-    auto initial_states = algo->get_initial_states();
-
-    std::cout << "Not end\n";
+    // print all states with its indexes
+    for (const auto initial_index : std::get<0>(automaton))
+    {
+        std::cout << initial_index << ": { ";
+        for (const auto &node : algo->get_concrete_state(initial_index))
+            std::cout << node->to_string() << "; ";
+        std::cout << "}\n";
+    }
 
     return 0;
 }

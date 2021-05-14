@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <set>
+#include <map>
 #include <algorithm>
 #include <tuple>
 
@@ -18,224 +19,154 @@ class converting
 public:
     using state_t = std::vector<ltl::node_t>;
     using indexes_container_t = std::set<size_t>;
-    // index of At -> first -- alph, second -- next states indexes of At
-    using table_t = std::vector<std::pair<std::set<uint32_t>, indexes_container_t>>;
+    /// \brief key : is an index of At -> value : first -- alph, second -- next states indexes of At
+    using table_t = std::map<size_t, std::pair<std::set<uint32_t>, indexes_container_t>>;
 
-    static std::shared_ptr<converting> construct(const ltl::node_t& formula)
+    static std::shared_ptr<converting> construct(ltl::node_t&& formula)
     {
-        return std::shared_ptr<converting>(new converting(formula));
+        return std::shared_ptr<converting>(new converting(std::move(formula)));
     }
 
-    [[nodiscard]]
-    const state_t& get_concrete_state(const size_t index) const { return m_atomic_plurality[index]; }
-    [[nodiscard]]
-    const std::set<uint32_t>& get_atomic_propositions() const  { return p_indexes; }
-    [[nodiscard]]
-    const indexes_container_t& get_initial_states() const { return m_A_0_indexes; }
+    [[maybe_unused, nodiscard]]
+    ltl::node_t get_ltl_formula() const { return m_formula; }
 
-    /// \return A, f, F
+    [[maybe_unused, nodiscard]]
+    inline const state_t& get_closure() const { return m_closure; }
+
     [[nodiscard]]
-    std::tuple<indexes_container_t, table_t, std::vector<indexes_container_t>> ltl_to_nga() const
+    inline const state_t& get_concrete_state(const size_t index) const { return m_At[index]; }
+    /// \brief Get data related to the resulted Automaton
+    /// [0] A - atomic plurality indexes that represents Automaton states
+    /// [1] AP - atomic propositions indexes used in LTL-formula
+    /// [2] f - transition table of state's index (key) : pair (value) of a alphabet (first) to get state's index (second)
+    /// [3] A_0 - atomic plurality indexes that represents Automaton initial states
+    /// [4] F - plurality of a final states pluralities where key is a queue number of Until operator in closer
+    ///                                             with value of an appropriate final state indexes plurality for it
+    /// \return A, AP, f, A_0, F
+    [[nodiscard]]
+    std::tuple<indexes_container_t, std::set<uint32_t>, table_t, indexes_container_t,
+               std::map<size_t, indexes_container_t>> get_automaton_representation() const
     {
-        const std::vector<state_t> &At = m_atomic_plurality;
-        indexes_container_t A{};
-        std::vector<indexes_container_t> F{m_until_count};
-        table_t f{At.size()};
-
-        indexes_container_t C_indexes = m_A_0_indexes;
-        while (!C_indexes.empty())
-        {
-            const size_t s_index = *C_indexes.begin();
-            C_indexes.erase(s_index);
-            const state_t &s = At[s_index];
-
-            A.insert(s_index);
-
-            int i = 0;
-            for (const ltl::node_t &alpha : m_closure_storage)
-            {
-                const auto z1_rule = [&](const auto& until_alpha)
-                {
-                    const bool is_alpha_in_s = std::any_of(s.begin(), s.end(),
-                                     [&until_alpha](const ltl::node_t &it) { return it == until_alpha; });
-                    const bool is_q_in_s = std::any_of(s.begin(), s.end(),
-                                    [right = std::dynamic_pointer_cast<ltl_until>(until_alpha)->m_right]
-                                    (const ltl::node_t &it) { return it == right; });
-                    if (!is_alpha_in_s || is_q_in_s)
-                        F[i].insert(s_index);
-                    // till next until
-                    ++i;
-                };
-
-                // TODO: consult!! about ! U case
-                /// rule Z1
-                if (alpha->get_kind() == ltl::kind::until)
-                {
-                    z1_rule(alpha);
-                }
-                if (alpha->get_kind() == ltl::kind::negation)
-                {
-                    const auto pos_alpha = std::dynamic_pointer_cast<ltl_negation>(alpha)->m_formula;
-                    if (pos_alpha->get_kind() == ltl::kind::until)
-                    {
-                        z1_rule(pos_alpha);
-                    }
-                }
-            }
-
-            indexes_container_t next_states_indexes{};
-            for (size_t sd_index = 0; sd_index < At.size(); ++sd_index)
-            {
-                /// rule R1-R2
-                if (is_satisfies_r_rules(s, At[sd_index]))
-                {
-                    next_states_indexes.insert(sd_index);
-                    if (!std::any_of(A.begin(), A.end(),
-                                     [&sd_index](const size_t &it) { return it == sd_index; }))
-                        C_indexes.insert(sd_index);
-                }
-            }
-
-            if (!next_states_indexes.empty())
-            {
-                // collect all atomic propositions that become curves
-                std::set<uint32_t> alph_proposition{};
-                for (const auto &node : s)
-                    if (node->get_kind() == ltl::kind::atom)
-                        alph_proposition.insert(std::dynamic_pointer_cast<ltl_atom>(node)->m_index);
-
-                assert(f[s_index].second.empty() && "Should be empty according to the algorithm");
-                f[s_index] = std::make_pair(std::move(alph_proposition), std::move(next_states_indexes));
-            }
-
-        }
-
-        return std::make_tuple(A, f, F);
+        return std::make_tuple(m_A, ap, m_table, m_A_0, m_F);
     }
 
 private:
-    explicit converting(const ltl::node_t& formula)
+    explicit converting(ltl::node_t&& formula) : m_formula(formula)
     {
-        fill_closure(formula);
+        fill_closure(m_formula);
         generate_atomic_plurality();
-        detect_initial_states(formula);
+        detect_initial_states(m_formula);
+
+        ltl_to_nga();
     }
 
-    /// rules R1-R2 + modified with neg
-    static bool is_satisfies_r_rules(const state_t &s, const state_t &sd)
+    static bool z1_rule(const state_t &s, const ltl::node_t &node)
     {
-        for (const auto &node_s : s)
+        if (node->get_kind() != ltl::kind::until)
+            return false;
+
+        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
+                         [&node](const ltl::node_t &it) -> bool { return it == node; });
+        const bool is_b_in_s = std::any_of(s.begin(), s.end(),
+                        [&b = std::dynamic_pointer_cast<ltl_until>(node)->m_right]
+                        (const ltl::node_t &it) -> bool { return it == b; });
+
+        return !is_node_in_s || is_b_in_s;
+    }
+
+    static bool r1_rule(const state_t &sd, const ltl::node_t &node)
+    {
+        if (node->get_kind() != ltl::kind::next)
+            return true;
+
+        const auto &a = std::dynamic_pointer_cast<ltl_next>(node)->m_xformula;
+
+        // is a in sd
+        return std::any_of(sd.begin(), sd.end(),
+                        [&a](const auto &node_sd) -> bool { return node_sd == a; });
+    }
+    static bool r2_rule(const state_t &s, const state_t &sd, const ltl::node_t &node)
+    {
+        if (node->get_kind() != ltl::kind::until)
+            return true;
+
+        const auto &node_s_until = std::dynamic_pointer_cast<ltl_until>(node);
+
+        const bool is_b_in_s = std::any_of(s.begin(), s.end(),
+                                           [&b = node_s_until->m_right](const auto &nd_s) -> bool
+                                           { return nd_s == b; });
+        const bool is_a_in_s = std::any_of(s.begin(), s.end(),
+                                           [&a = node_s_until->m_left](const auto &nd_s) -> bool
+                                           { return nd_s == a; });
+        const bool is_node_s_in_sd = std::any_of(sd.begin(), sd.end(),
+                                           [&node_s_until](const auto &node_sd) -> bool
+                                           { return node_sd == node_s_until; });
+
+        return is_b_in_s || (is_a_in_s && is_node_s_in_sd);
+    }
+    /// rules R1-R2 + modified with neg
+    static std::optional<bool> satisfies_r_rules(const state_t &s, const state_t &sd, const ltl::node_t &node)
+    {
+        if (const auto kind = node->get_kind(); kind == ltl::kind::negation)
         {
-            switch (node_s->get_kind())
-            {
-                /// rule R1
-                case ltl::kind::next:
-                {
-                    const auto &a = std::dynamic_pointer_cast<ltl_next>(node_s)->m_xformula;
-                    if (std::any_of(sd.begin(), sd.end(), [&a](const auto &node_sd)
-                                    { return node_sd == a; }))
-                        continue;
-                    return false;
-                }
-                /// rule R2
-                case ltl::kind::until:
-                {
-                    const auto node_s_until = std::dynamic_pointer_cast<ltl_until>(node_s);
-                    bool is_b_in_s = std::any_of(s.begin(), s.end(), [&b = node_s_until->m_right](const auto &nd_s)
-                                                { return nd_s == b; });
-                    bool is_a_in_s = std::any_of(s.begin(), s.end(), [&a = node_s_until->m_left](const auto &nd_s)
-                                                { return nd_s == a; });
-                    bool is_node_s_in_sd = std::any_of(sd.begin(), sd.end(), [&node_s](const auto &node_sd)
-                                                { return node_sd == node_s; });
-
-                    if (is_b_in_s || (is_a_in_s && is_node_s_in_sd))
-                        continue;
-
-                    return false;
-                }
-                case ltl::kind::negation:
-                {
-                    const auto &neg_node_s = std::dynamic_pointer_cast<ltl_negation>(node_s)->m_formula;
-                    switch (neg_node_s->get_kind())
-                    {
-                        /// rule R1 neg: !Xa in s = X!a in s
-                        case ltl::kind::next:
-                        {
-                            auto a = std::dynamic_pointer_cast<ltl_next>(neg_node_s)->m_xformula;
-                            const auto neg_a = ltl_negation::construct(std::move(a));
-                            if (std::any_of(sd.begin(), sd.end(), [&neg_a](const auto &node_sd)
-                                            { return node_sd == neg_a; }))
-                                continue;
-                            return false;
-                        }
-                        /// rule R2 neg: ! (a U b) in s = !b in s && (!a in s || !(a U b) in s)
-                        case ltl::kind::until:
-                        {
-                            auto a = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_left;
-                            auto b = std::dynamic_pointer_cast<ltl_until>(neg_node_s)->m_right;
-
-                            const bool is_b_in_s = std::any_of(s.begin(), s.end(), [&b](const auto &nd_s)
-                                                                    { return nd_s == b; });
-                            const bool is_a_in_s = std::any_of(s.begin(), s.end(), [&a](const auto &nd_s)
-                                                                    { return nd_s == a; });
-                            const bool is_neg_node_s_in_sd = std::any_of(sd.begin(), sd.end(), [&neg_node_s](const auto &node_sd)
-                                                                { return node_sd == neg_node_s; });
-
-                            if (!is_b_in_s && (!is_a_in_s || !is_neg_node_s_in_sd))
-                                 continue;
-
-                            return false;
-                        }
-                        case ltl::kind::negation:
-                            assert("Shouldn't happen");
-                            break;
-                        default:
-                            break;
-                    }
-                    break;
-                }
-                default:
-                    break;
-            }
+            return !satisfies_r_rules(s, sd, std::dynamic_pointer_cast<ltl_negation>(node)->m_negformula).value_or(false);
+        }
+        else if (kind == ltl::kind::next)
+        {
+            /// rule R1: Xa in s = a in sd
+            return r1_rule(sd, node);
+        }
+        else if (kind == ltl::kind::until)
+        {
+            /// rule R2: (a U b) in s = b in s OR (a in s AND (a U b) in sd)
+            return r2_rule(s, sd, node);
         }
 
-        return true;
+        // while negation we shouldn't turn simpler operators
+        return std::nullopt;
     }
 
     /// \brief Initial state calculation. Save in @m_A_0_indexes
     /// \param formula: LTL-formula from input
     void detect_initial_states(const ltl::node_t &formula)
     {
-        m_A_0_indexes.clear();
-        for (size_t i = 0; i < m_atomic_plurality.size(); ++i)
+        m_A_0.clear();
+        for (size_t i = 0; i < m_At.size(); ++i)
         {
-            const state_t &s = m_atomic_plurality[i];
+            const state_t &s = m_At[i];
             if (std::any_of(s.begin(), s.end(), [&formula](const ltl::node_t& it) { return it == formula; }))
-                m_A_0_indexes.insert(i);
+                m_A_0.insert(i);
         }
     }
 
     void generate_atomic_plurality()
     {
-        state_t neg_storage{m_closure_storage};
+        state_t neg_storage{m_closure};
+        /// rule 1 prediction
         for (ltl::node_t &it : neg_storage)
             it = ltl_negation::construct(std::move(it));
 
-        recursive_brute_force(m_atomic_plurality, m_closure_storage, neg_storage);
+        recursive_brute_force(m_At, m_closure, neg_storage);
     }
-
+    /// \note @pos and @neg size should be equal
     static void recursive_brute_force(std::vector<state_t> &states, const state_t &pos, const state_t &neg,
                                       state_t curr = {}, size_t i = 0)
     {
-        assert(pos.size() == neg.size());
+        if (pos.size() != neg.size())
+            return;
+
         // initialization of input default parameter
         if (i == 0)
             curr = state_t{pos.size(), nullptr};
 
         if (i == pos.size())
         {
-            if (is_correct_atomic(curr))
+            if (std::all_of(curr.begin(), curr.end(),
+                            [&](const ltl::node_t &node) -> bool { return satisfies_atomic_rules(curr, node); }))
+            {
                 states.emplace_back(curr);
+            }
+
             return;
         }
 
@@ -246,88 +177,61 @@ private:
         recursive_brute_force(states, pos, neg, curr, i+1);
     }
 
-    static bool is_correct_atomic(const state_t &atomic)
+    static bool conjunction_rule(const state_t &atomic, const ltl::node_t &node)
     {
-        const auto find_fn = [&atomic](const ltl::node_t& node) -> bool
+        if (node->get_kind() != ltl::kind::conjunction)
+            return true;
+
+        const auto node_conjunction = std::dynamic_pointer_cast<ltl_conjunction>(node);
+
+        const bool is_a_in_atomic =  std::any_of(atomic.begin(), atomic.end(),
+                                                 [&a = node_conjunction->m_left ](const ltl::node_t& it) -> bool
+                                                 { return it == a; });
+        const bool is_b_in_atomic =  std::any_of(atomic.begin(), atomic.end(),
+                                                 [&b = node_conjunction->m_right ](const ltl::node_t& it) -> bool
+                                                 { return it == b; });
+
+        return is_a_in_atomic && is_b_in_atomic;
+    }
+    static bool until_rules(const state_t &atomic, const ltl::node_t &node)
+    {
+        if (node->get_kind() != ltl::kind::until)
+            return true;
+
+        constexpr auto implication = [](const bool a, const bool b) -> bool { return !a | b; };
+
+        const auto &node_until = std::dynamic_pointer_cast<ltl_until>(node);
+
+        const bool is_node_in_atomic = std::any_of(atomic.begin(), atomic.end(),
+                                                [&node_until](const ltl::node_t& it) -> bool
+                                                { return it == node_until; });
+        const bool is_a_in_atomic = std::any_of(atomic.begin(), atomic.end(),
+                                                [&a = node_until->m_left](const ltl::node_t& it) -> bool
+                                                { return it == a; });
+        const bool is_b_in_atomic = std::any_of(atomic.begin(), atomic.end(),
+                                                [&b = node_until->m_right](const ltl::node_t& it) -> bool
+                                                { return it == b; });
+
+        const bool rule_3 = implication(is_node_in_atomic && !is_b_in_atomic, is_a_in_atomic);
+        const bool rule_4 = implication(is_b_in_atomic, is_node_in_atomic);
+
+        return rule_3 && rule_4;
+    }
+    static bool satisfies_atomic_rules(const state_t &atomic, const ltl::node_t &node)
+    {
+        if (const auto kind = node->get_kind(); kind == ltl::kind::negation)
         {
-            return std::any_of(atomic.begin(), atomic.end(),
-                               [&node](const ltl::node_t& it) { return it == node; });
-        };
-
-        for (auto f : atomic)
+            return satisfies_atomic_rules(atomic, std::dynamic_pointer_cast<ltl_negation>(node)->m_negformula);
+        }
+        else if (kind == ltl::kind::conjunction)
         {
-            switch (f->get_kind())
-            {
-                case ltl::kind::one:
-                case ltl::kind::atom:
-                case ltl::kind::next:
-                    break;
-                case ltl::kind::negation:
-                {
-                    const auto &pos = std::dynamic_pointer_cast<ltl_negation>(f)->m_formula;
-                    switch (pos->get_kind())
-                    {
-                        case ltl::kind::one:
-                        case ltl::kind::atom:
-                        case ltl::kind::next:
-                            break;
-                        case ltl::kind::negation:
-                            assert("Shouldn't happen");
-                            break;
-                        case ltl::kind::conjunction:
-                        {
-                            auto left = std::dynamic_pointer_cast<ltl_conjunction>(pos)->m_left;
-                            auto right = std::dynamic_pointer_cast<ltl_conjunction>(pos)->m_right;
-                            const auto neg_left = ltl_negation::construct(std::move(left));
-                            const auto neg_right = ltl_negation::construct(std::move(right));
-
-                            /// rule 5: !(a ^ b) = !a ∨ !b
-                            if (find_fn(neg_left) || find_fn(neg_right))
-                                continue;
-
-                            return false;
-                        }
-                        case ltl::kind::until:
-                        {
-                            // rule 3-4 for not a U b in s
-                            auto left = std::dynamic_pointer_cast<ltl_until>(pos)->m_left;
-                            auto right = std::dynamic_pointer_cast<ltl_until>(pos)->m_right;
-
-                            if (!find_fn(right))
-                                continue;
-
-                            return false;
-                        }
-                        default:
-                            break;
-                    }
-                    break;
-                }
-                case ltl::kind::conjunction:
-                    /// rule 3-4
-                    if (find_fn(std::dynamic_pointer_cast<ltl_conjunction>(f)->m_left) &&
-                          find_fn(std::dynamic_pointer_cast<ltl_conjunction>(f)->m_right))
-                        continue;
-
-                    return false;
-                case ltl::kind::until:
-                    /// rule 2
-                    if (find_fn(std::dynamic_pointer_cast<ltl_until>(f)->m_left) ||
-                          find_fn(std::dynamic_pointer_cast<ltl_until>(f)->m_right))
-                        continue;
-
-                    return false;
-                default:
-                    break;
-            }
-
-            /// rule 1 : that is a redundant check, but let it be
-            auto neg = ltl_negation::construct(std::move(f));
-            if (find_fn(neg))
-            {
-                assert("Shouldn't happen by the idea of implementing the code");
-                return false;
-            }
+            /// rule 2
+            return conjunction_rule(atomic, node);
+        }
+        else if (kind == ltl::kind::until)
+        {
+            /// rule 3-4
+            return until_rules(atomic, node);
         }
 
         return true;
@@ -338,7 +242,7 @@ private:
         switch (formula->get_kind())
         {
             case ltl::kind::negation:
-                fill_closure(std::dynamic_pointer_cast<ltl_negation>(formula)->m_formula);
+                fill_closure(std::dynamic_pointer_cast<ltl_negation>(formula)->m_negformula);
                 return;
 
             case ltl::kind::one:
@@ -346,7 +250,7 @@ private:
             case ltl::kind::atom:
             {
                 // AP saving
-                p_indexes.insert(std::dynamic_pointer_cast<ltl_atom>(formula)->m_index);
+                ap.insert(std::dynamic_pointer_cast<ltl_atom>(formula)->m_index);
                 break;
             }
             case ltl::kind::conjunction:
@@ -362,8 +266,6 @@ private:
             }
             case ltl::kind::until:
             {
-                // until counter that will be helpful during algorithm
-                ++m_until_count;
                 fill_closure(std::dynamic_pointer_cast<ltl_until>(formula)->m_left);
                 fill_closure(std::dynamic_pointer_cast<ltl_until>(formula)->m_right);
                 break;
@@ -375,22 +277,87 @@ private:
 
         add_to_closure(formula);
     }
-
     void add_to_closure(const ltl::node_t& formula)
     {
-        for (const auto &it : m_closure_storage)
+        for (const auto &it : m_closure)
             if (it == formula)
                 return;
 
-        m_closure_storage.emplace_back(formula);
+        m_closure.emplace_back(formula);
     }
 
-    std::set<uint32_t> p_indexes{};
-    size_t m_until_count{0};
-    std::vector<ltl::node_t> m_closure_storage{};
-    std::vector<std::vector<ltl::node_t>> m_atomic_plurality{};
+    /// \brief Algorithm implementing
+    void ltl_to_nga()
+    {
+        indexes_container_t C_indexes = m_A_0;
+        while (!C_indexes.empty())
+        {
+            const size_t s_index = *C_indexes.begin();
+            C_indexes.erase(s_index);
+            const state_t &s = m_At[s_index];
 
-    indexes_container_t m_A_0_indexes{};
+            m_A.insert(s_index);
+
+            size_t i = 0;
+            for (const ltl::node_t &alpha : m_closure)
+            {
+                /// rule Z1
+                if (z1_rule(s, alpha))
+                    m_F[i].insert(s_index);
+                // till next until
+                if (alpha->get_kind() == ltl::kind::until)
+                    ++i;
+            }
+
+            indexes_container_t next_states_indexes{};
+            for (size_t sd_index = 0; sd_index < m_At.size(); ++sd_index)
+            {
+                /// rule R1-R2
+                if (std::all_of(s.begin(), s.end(),
+                                [&](const ltl::node_t &node) -> bool
+                                { return satisfies_r_rules(s, m_At[sd_index], node).value_or(true); }))
+                {
+                    next_states_indexes.insert(sd_index);
+                    if (!std::any_of(m_A.begin(), m_A.end(),
+                                     [&sd_index](const size_t &it) -> bool { return it == sd_index; }))
+                        C_indexes.insert(sd_index);
+                }
+            }
+
+            if (!next_states_indexes.empty())
+            {
+                // collect all atomic propositions that become curves
+                std::set<uint32_t> s_proposition{};
+                for (const auto &node : s)
+                    if (node->get_kind() == ltl::kind::atom)
+                        s_proposition.insert(std::dynamic_pointer_cast<ltl_atom>(node)->m_index);
+
+                assert(m_table[s_index].second.empty() && "Should be empty according to the algorithm");
+                m_table[s_index] = std::make_pair(std::move(s_proposition), std::move(next_states_indexes));
+            }
+        }
+    }
+
+
+    /// \brief Store LTL-formula from input
+    const ltl::node_t m_formula;
+    /// \brief Closure of LTL-formula
+    std::vector<ltl::node_t> m_closure{};
+    /// \brief Atomic plurality of LTL-formula
+    std::vector<std::vector<ltl::node_t>> m_At{};
+
+    /// Automaton representation
+
+    /// \brief All states in automaton indexes
+    indexes_container_t m_A{};
+    /// \brief All Atomic Propositions in LTL-formula
+    std::set<uint32_t> ap{};
+    /// \brief Transition table via indexes
+    table_t m_table{};
+    /// \brief Initial states indexes
+    indexes_container_t m_A_0{};
+    /// \brief Final states plurality of pluralities
+    std::map<size_t, indexes_container_t> m_F;
 };
 
 } // namespace ltl

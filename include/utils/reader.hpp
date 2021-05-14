@@ -16,7 +16,7 @@ std::shared_ptr<ltl::ltl> read_formula()
         case 't':
             return ltl::ltl_one::construct();
         case 'p':
-            // FIXME: another approach
+            // TODO: another approach
             if (1 == scanf("%u", &ch))
                 return ltl::ltl_atom::construct(ch);
             // TODO: log

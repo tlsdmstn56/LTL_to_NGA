@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <string>
 
 // TODO: remove
 #include <iostream>
@@ -31,7 +32,7 @@ public:
 
     friend bool operator== (const node_t& left, const node_t& right);
 
-    virtual ~ltl() = default;
+    [[nodiscard]] virtual std::string to_string() const = 0;
 
 protected:
     explicit ltl(const kind kind) : m_kind(kind) {};
@@ -54,6 +55,11 @@ public:
         return true;
     }
 
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "true";
+    }
+
 private:
     explicit ltl_one()
             : ltl(kind::one)
@@ -64,19 +70,19 @@ class ltl_atom : public ltl
 {
 public:
 
-    static node_t construct(uint32_t num)
+    static node_t construct(uint32_t index)
     {
-        return std::shared_ptr<ltl_atom>(new ltl_atom(num));
-    }
-
-    ~ltl_atom()
-    {
-        std::cout << "Atom distruct " << m_index << "\n";
+        return std::shared_ptr<ltl_atom>(new ltl_atom(index));
     }
 
     friend bool operator== (const std::shared_ptr<ltl_atom>& left, const std::shared_ptr<ltl_atom>& right)
     {
         return left->m_index == right->m_index;
+    }
+
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "p" + std::to_string(m_index);
     }
 
     // TODO: is this atm_size type?
@@ -105,24 +111,29 @@ public:
 
         // optimization block with negative child
         if (formula->get_kind() == ltl::kind::negation)
-            return std::dynamic_pointer_cast<ltl_negation>(formula)->m_formula;
+            return std::dynamic_pointer_cast<ltl_negation>(formula)->m_negformula;
 
         return std::shared_ptr<ltl_negation>(new ltl_negation(formula));
     }
 
     friend bool operator== (const std::shared_ptr<ltl_negation>& left, const std::shared_ptr<ltl_negation>& right)
     {
-        return left->m_formula == right->m_formula;
+        return left->m_negformula == right->m_negformula;
     }
 
-    const node_t m_formula{nullptr};
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "! " + m_negformula->to_string();
+    }
+
+    const node_t m_negformula{nullptr};
 
 private:
     explicit ltl_negation(node_t formula)
-            : ltl(kind::negation), m_formula(std::move(formula))
+            : ltl(kind::negation), m_negformula(std::move(formula))
     {
-        assert(m_formula && "Formula should be set");
-        assert(m_formula->get_kind() != ltl::kind::negation && "Inner formula can't be negative");
+        assert(m_negformula && "Formula should be set");
+        assert(m_negformula->get_kind() != ltl::kind::negation && "Inner formula can't be negative");
     }
 };
 
@@ -146,9 +157,9 @@ public:
         if (right->get_kind() == ltl::kind::one)
             return left;
         if ((left->get_kind() == ltl::kind::negation &&
-            std::dynamic_pointer_cast<ltl_negation>(left)->m_formula->get_kind() == ltl::kind::one) ||
+             std::dynamic_pointer_cast<ltl_negation>(left)->m_negformula->get_kind() == ltl::kind::one) ||
             (right->get_kind() == ltl::kind::negation &&
-            std::dynamic_pointer_cast<ltl_negation>(right)->m_formula->get_kind() == ltl::kind::one))
+             std::dynamic_pointer_cast<ltl_negation>(right)->m_negformula->get_kind() == ltl::kind::one))
         {
             return ltl_negation::construct(ltl_one::construct());
         }
@@ -163,6 +174,11 @@ public:
     {
         return ((left->m_left == right->m_left && left->m_right == right->m_right) ||
                 (left->m_left == right->m_right && left->m_right == right->m_left));
+    }
+
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "^ " + m_left->to_string() + " " + m_right->to_string();
     }
 
     const node_t m_left{nullptr};
@@ -199,6 +215,11 @@ public:
         return left->m_xformula == right->m_xformula;
     }
 
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "X " + m_xformula->to_string();
+    }
+
     const node_t m_xformula{nullptr};
 
 private:
@@ -232,6 +253,11 @@ public:
         return left->m_left == right->m_left && left->m_right == right->m_right;
     }
 
+    [[nodiscard]] std::string to_string() const final
+    {
+        return "U " + m_left->to_string() + " " + m_right->to_string();
+    }
+
     const node_t m_left{nullptr};
     const node_t m_right{nullptr};
 
@@ -248,7 +274,7 @@ bool operator== (const ltl::node_t& left, const ltl::node_t& right)
 {
     if (left->get_kind() == right->get_kind())
     {
-        // FIXME: try to rewrite
+        // TODO: try to rewrite
         // C++20 style
         auto fn = [&left, &right]<typename T>() -> bool
         {
