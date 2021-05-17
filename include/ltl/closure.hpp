@@ -74,21 +74,34 @@ private:
         return !is_node_in_s || is_b_in_s;
     }
 
-    static bool r1_rule(const state_t &sd, const ltl::node_t &node)
+    static bool r1_rule(const state_t &s, const state_t &sd, const ltl::node_t &node)
     {
         if (node->get_kind() != ltl::kind::next)
             return true;
 
+        // whether negation
+        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
+                                              [&node](const auto &nd_s) -> bool
+                                              { return nd_s == node; });
+
         const auto &a = std::dynamic_pointer_cast<ltl_next>(node)->m_xformula;
 
         // is a in sd
-        return std::any_of(sd.begin(), sd.end(),
-                        [&a](const auto &node_sd) -> bool { return node_sd == a; });
+        const bool is_a_in_sd = std::any_of(sd.begin(), sd.end(),
+                                            [&a](const auto &node_sd) -> bool
+                                            { return node_sd == a; });
+
+        return is_node_in_s == is_a_in_sd;
     }
     static bool r2_rule(const state_t &s, const state_t &sd, const ltl::node_t &node)
     {
         if (node->get_kind() != ltl::kind::until)
             return true;
+
+        // whether negation
+        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
+                                              [&node](const auto &nd_s) -> bool
+                                              { return nd_s == node; });
 
         const auto &node_s_until = std::dynamic_pointer_cast<ltl_until>(node);
 
@@ -102,19 +115,21 @@ private:
                                            [&node_s_until](const auto &node_sd) -> bool
                                            { return node_sd == node_s_until; });
 
-        return is_b_in_s || (is_a_in_s && is_node_s_in_sd);
+        const bool rule = is_b_in_s || (is_a_in_s && is_node_s_in_sd);
+
+        return is_node_in_s == rule;
     }
     /// rules R1-R2 + modified with neg
-    static std::optional<bool> satisfies_r_rules(const state_t &s, const state_t &sd, const ltl::node_t &node)
+    static bool satisfies_r_rules(const state_t &s, const state_t &sd, const ltl::node_t &node)
     {
         if (const auto kind = node->get_kind(); kind == ltl::kind::negation)
         {
-            return !satisfies_r_rules(s, sd, std::dynamic_pointer_cast<ltl_negation>(node)->m_negformula).value_or(false);
+            return satisfies_r_rules(s, sd, std::dynamic_pointer_cast<ltl_negation>(node)->m_negformula);
         }
         else if (kind == ltl::kind::next)
         {
             /// rule R1: Xa in s = a in sd
-            return r1_rule(sd, node);
+            return r1_rule(s, sd, node);
         }
         else if (kind == ltl::kind::until)
         {
@@ -122,8 +137,7 @@ private:
             return r2_rule(s, sd, node);
         }
 
-        // while negation we shouldn't turn simpler operators
-        return std::nullopt;
+        return true;
     }
 
     /// \brief Initial state calculation. Save in @m_A_0_indexes
@@ -182,6 +196,12 @@ private:
         if (node->get_kind() != ltl::kind::conjunction)
             return true;
 
+        /// \note this gives us an understanding of whether there was a negation before the node
+        // whether negation
+        const bool is_node_in_atomic = std::any_of(atomic.begin(), atomic.end(),
+                                                [&node](const ltl::node_t& it) -> bool
+                                                { return it == node; });
+
         const auto node_conjunction = std::dynamic_pointer_cast<ltl_conjunction>(node);
 
         const bool is_a_in_atomic =  std::any_of(atomic.begin(), atomic.end(),
@@ -191,14 +211,16 @@ private:
                                                  [&b = node_conjunction->m_right ](const ltl::node_t& it) -> bool
                                                  { return it == b; });
 
-        return is_a_in_atomic && is_b_in_atomic;
+        const bool rule = is_a_in_atomic && is_b_in_atomic;
+
+        return is_node_in_atomic == rule;
     }
     static bool until_rules(const state_t &atomic, const ltl::node_t &node)
     {
         if (node->get_kind() != ltl::kind::until)
             return true;
 
-        constexpr auto implication = [](const bool a, const bool b) -> bool { return !a | b; };
+        constexpr auto implication = [](const bool a, const bool b) -> bool { return !a || b; };
 
         const auto &node_until = std::dynamic_pointer_cast<ltl_until>(node);
 
@@ -315,7 +337,7 @@ private:
                 /// rule R1-R2
                 if (std::all_of(s.begin(), s.end(),
                                 [&](const ltl::node_t &node) -> bool
-                                { return satisfies_r_rules(s, m_At[sd_index], node).value_or(true); }))
+                                { return satisfies_r_rules(s, m_At[sd_index], node); }))
                 {
                     next_states_indexes.insert(sd_index);
                     if (!std::any_of(m_A.begin(), m_A.end(),
