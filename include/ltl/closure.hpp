@@ -50,6 +50,12 @@ public:
         return std::make_tuple(m_A, ap, m_table, m_A_0, m_F);
     }
 
+    constexpr static bool implication(const bool a, const bool b) { return !a || b; }
+    constexpr static bool is_in(const state_t &bunch, const ltl::node_t &node)
+    {
+        return std::any_of(bunch.begin(), bunch.end(), [&node](const ltl::node_t &it) -> bool { return it == node; });
+    }
+
 private:
     explicit converting(ltl::node_t&& formula) : m_formula(formula)
     {
@@ -65,13 +71,10 @@ private:
         if (node->get_kind() != ltl::kind::until)
             return false;
 
-        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
-                         [&node](const ltl::node_t &it) -> bool { return it == node; });
-        const bool is_b_in_s = std::any_of(s.begin(), s.end(),
-                        [&b = std::dynamic_pointer_cast<ltl_until>(node)->m_right]
-                        (const ltl::node_t &it) -> bool { return it == b; });
+        const bool is_node_in_s = is_in(s, node);
+        const bool is_b_in_s = is_in(s, std::dynamic_pointer_cast<ltl_until>(node)->m_right);
 
-        return !is_node_in_s || is_b_in_s;
+        return implication(is_node_in_s, is_b_in_s);
     }
 
     static bool r1_rule(const state_t &s, const state_t &sd, const ltl::node_t &node)
@@ -80,16 +83,10 @@ private:
             return true;
 
         // whether negation
-        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
-                                              [&node](const auto &nd_s) -> bool
-                                              { return nd_s == node; });
-
-        const auto &a = std::dynamic_pointer_cast<ltl_next>(node)->m_xformula;
+        const bool is_node_in_s = is_in(s, node);;
 
         // is a in sd
-        const bool is_a_in_sd = std::any_of(sd.begin(), sd.end(),
-                                            [&a](const auto &node_sd) -> bool
-                                            { return node_sd == a; });
+        const bool is_a_in_sd = is_in(sd, std::dynamic_pointer_cast<ltl_next>(node)->m_xformula);
 
         return is_node_in_s == is_a_in_sd;
     }
@@ -99,21 +96,13 @@ private:
             return true;
 
         // whether negation
-        const bool is_node_in_s = std::any_of(s.begin(), s.end(),
-                                              [&node](const auto &nd_s) -> bool
-                                              { return nd_s == node; });
+        const bool is_node_in_s = is_in(s, node);
 
         const auto &node_s_until = std::dynamic_pointer_cast<ltl_until>(node);
 
-        const bool is_b_in_s = std::any_of(s.begin(), s.end(),
-                                           [&b = node_s_until->m_right](const auto &nd_s) -> bool
-                                           { return nd_s == b; });
-        const bool is_a_in_s = std::any_of(s.begin(), s.end(),
-                                           [&a = node_s_until->m_left](const auto &nd_s) -> bool
-                                           { return nd_s == a; });
-        const bool is_node_s_in_sd = std::any_of(sd.begin(), sd.end(),
-                                           [&node_s_until](const auto &node_sd) -> bool
-                                           { return node_sd == node_s_until; });
+        const bool is_b_in_s = is_in(s, node_s_until->m_right);
+        const bool is_a_in_s = is_in(s, node_s_until->m_left);
+        const bool is_node_s_in_sd = is_in(sd, node_s_until);
 
         const bool rule = is_b_in_s || (is_a_in_s && is_node_s_in_sd);
 
@@ -147,8 +136,7 @@ private:
         m_A_0.clear();
         for (size_t i = 0; i < m_At.size(); ++i)
         {
-            const state_t &s = m_At[i];
-            if (std::any_of(s.begin(), s.end(), [&formula](const ltl::node_t& it) { return it == formula; }))
+            if (is_in(m_At[i], formula))
                 m_A_0.insert(i);
         }
     }
@@ -176,7 +164,8 @@ private:
         if (i == pos.size())
         {
             if (std::all_of(curr.begin(), curr.end(),
-                            [&](const ltl::node_t &node) -> bool { return satisfies_atomic_rules(curr, node); }))
+                            [&](const ltl::node_t &node) -> bool
+                            { return satisfies_atomic_rules(curr, node); }))
             {
                 states.emplace_back(curr);
             }
@@ -198,18 +187,12 @@ private:
 
         /// \note this gives us an understanding of whether there was a negation before the node
         // whether negation
-        const bool is_node_in_atomic = std::any_of(atomic.begin(), atomic.end(),
-                                                [&node](const ltl::node_t& it) -> bool
-                                                { return it == node; });
+        const bool is_node_in_atomic = is_in(atomic, node);
 
         const auto node_conjunction = std::dynamic_pointer_cast<ltl_conjunction>(node);
 
-        const bool is_a_in_atomic =  std::any_of(atomic.begin(), atomic.end(),
-                                                 [&a = node_conjunction->m_left ](const ltl::node_t& it) -> bool
-                                                 { return it == a; });
-        const bool is_b_in_atomic =  std::any_of(atomic.begin(), atomic.end(),
-                                                 [&b = node_conjunction->m_right ](const ltl::node_t& it) -> bool
-                                                 { return it == b; });
+        const bool is_a_in_atomic = is_in(atomic, node_conjunction->m_left);
+        const bool is_b_in_atomic = is_in(atomic, node_conjunction->m_right);
 
         const bool rule = is_a_in_atomic && is_b_in_atomic;
 
@@ -220,19 +203,11 @@ private:
         if (node->get_kind() != ltl::kind::until)
             return true;
 
-        constexpr auto implication = [](const bool a, const bool b) -> bool { return !a || b; };
-
         const auto &node_until = std::dynamic_pointer_cast<ltl_until>(node);
 
-        const bool is_node_in_atomic = std::any_of(atomic.begin(), atomic.end(),
-                                                [&node_until](const ltl::node_t& it) -> bool
-                                                { return it == node_until; });
-        const bool is_a_in_atomic = std::any_of(atomic.begin(), atomic.end(),
-                                                [&a = node_until->m_left](const ltl::node_t& it) -> bool
-                                                { return it == a; });
-        const bool is_b_in_atomic = std::any_of(atomic.begin(), atomic.end(),
-                                                [&b = node_until->m_right](const ltl::node_t& it) -> bool
-                                                { return it == b; });
+        const bool is_node_in_atomic = is_in(atomic, node_until);
+        const bool is_a_in_atomic = is_in(atomic, node_until->m_left);
+        const bool is_b_in_atomic = is_in(atomic, node_until->m_right);
 
         const bool rule_3 = implication(is_node_in_atomic && !is_b_in_atomic, is_a_in_atomic);
         const bool rule_4 = implication(is_b_in_atomic, is_node_in_atomic);
@@ -341,7 +316,8 @@ private:
                 {
                     next_states_indexes.insert(sd_index);
                     if (!std::any_of(m_A.begin(), m_A.end(),
-                                     [&sd_index](const size_t &it) -> bool { return it == sd_index; }))
+                                     [&sd_index](const size_t &it) -> bool
+                                     { return it == sd_index; }))
                         C_indexes.insert(sd_index);
                 }
             }
