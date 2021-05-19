@@ -17,7 +17,7 @@ public:
     using state_t = std::vector<ltl::node_t>;
     using indexes_container_t = std::set<size_t>;
     /// \brief key : is an index of At -> value : first -- alph, second -- next states indexes of At
-    using table_t = std::map<size_t, std::pair<std::set<uint32_t>, indexes_container_t>>;
+    using table_t = std::map<size_t, std::pair<std::set<ltl_atom::index_atom_t>, indexes_container_t>>;
 
     static std::shared_ptr<converting> construct(ltl::node_t&& formula)
     {
@@ -41,7 +41,7 @@ public:
     ///                                             with value of an appropriate final state indexes plurality for it
     /// \return A, AP, f, A_0, F
     [[nodiscard]]
-    std::tuple<indexes_container_t, std::set<uint32_t>, table_t, indexes_container_t,
+    std::tuple<indexes_container_t, std::set<ltl_atom::index_atom_t>, table_t, indexes_container_t,
                std::map<size_t, indexes_container_t>> get_automaton_representation() const
     {
         return std::make_tuple(m_A, ap, m_table, m_A_0, m_F);
@@ -322,7 +322,7 @@ private:
             if (!next_states_indexes.empty())
             {
                 // collect all atomic propositions that become curves
-                std::set<uint32_t> s_proposition{};
+                std::set<ltl_atom::index_atom_t> s_proposition{};
                 for (const auto &node : s)
                     if (node->get_kind() == ltl::kind::atom)
                         s_proposition.insert(std::dynamic_pointer_cast<ltl_atom>(node)->m_index);
@@ -346,7 +346,7 @@ private:
     /// \brief All states in automaton indexes
     indexes_container_t m_A{};
     /// \brief All Atomic Propositions in LTL-formula
-    std::set<uint32_t> ap{};
+    std::set<ltl_atom::index_atom_t> ap{};
     /// \brief Transition table via indexes
     table_t m_table{};
     /// \brief Initial states indexes

@@ -16,9 +16,10 @@ std::shared_ptr<ltl::ltl> read_formula()
         case 't':
             return ltl::ltl_one::construct();
         case 'p':
+            ltl::ltl_atom::index_atom_t index;
             // TODO: another approach
-            if (scanf("%u", &ch) == 1)
-                return ltl::ltl_atom::construct(ch);
+            if (scanf("%u", &index) == 1)
+                return ltl::ltl_atom::construct(index);
             assert(!"Error in proposition number");
             return nullptr;
         case '!':

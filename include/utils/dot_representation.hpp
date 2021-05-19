@@ -88,7 +88,7 @@ std::string generate_edges(const ltl::converting::table_t &transitions)
     std::string edges;
     for (const auto &[index, value] : transitions)
     {
-        auto create_label = [](const std::set<uint32_t> &alph) -> std::string
+        auto create_label = [](const std::set<ltl::ltl_atom::index_atom_t> &alph) -> std::string
         {
             const std::string empty_edge_style{"[style=dotted,label=<&#8709;>;];"};
 

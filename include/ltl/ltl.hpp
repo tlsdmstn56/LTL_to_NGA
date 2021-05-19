@@ -66,8 +66,9 @@ private:
 class ltl_atom : public ltl
 {
 public:
+    using index_atom_t = uint32_t;
 
-    static node_t construct(uint32_t index)
+    static node_t construct(index_atom_t index)
     {
         return std::shared_ptr<ltl_atom>(new ltl_atom(index));
     }
@@ -83,10 +84,10 @@ public:
     }
 
     // TODO: is this atm_size type?
-    const uint32_t m_index{0};
+    const index_atom_t m_index{0};
 
 private:
-    explicit ltl_atom(uint32_t index)
+    explicit ltl_atom(index_atom_t index)
             : ltl(kind::atom), m_index(index)
     {}
 
