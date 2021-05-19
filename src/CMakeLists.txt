@@ -3,6 +3,6 @@ add_library(Ltl STATIC
         ltl/ltl.cpp
         ltl/closure.cpp
         utils/reader.cpp
-        ../include/utils/dot_representation.hpp)
+        utils/dot_representation.cpp)
 
 target_include_directories(Ltl PUBLIC ${PROJECT_SOURCE_DIR}/include)
