@@ -8,9 +8,6 @@
 #include <algorithm>
 #include <tuple>
 
-// TODO: remove iostream
-#include <iostream>
-
 namespace ltl
 {
 

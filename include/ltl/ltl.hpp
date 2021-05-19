@@ -5,9 +5,6 @@
 #include <utility>
 #include <string>
 
-// TODO: remove
-#include <iostream>
-
 namespace ltl
 {
 
@@ -101,11 +98,9 @@ public:
 
     static node_t construct(node_t &&formula)
     {
-        //assert(formula && "Empty inner formula");
         if (!formula)
         {
-            // TODO: log
-            std::cout << "ERROR: Empty inner formula\n";
+            assert(!"Empty inner formula");
             return nullptr;
         }
 
@@ -143,11 +138,9 @@ public:
 
     static node_t construct(node_t &&left, node_t &&right)
     {
-        //assert(left && right && "Empty inner formula");
         if (!left || !right)
         {
-            // TODO: log
-            std::cout << "ERROR: Empty inner " << (left ? "" : "left") << (right ? "" : "right") <<  " formula\n";
+            assert(left && right && "Empty inner formula");
             return nullptr;
         }
 
@@ -199,11 +192,9 @@ public:
 
     static node_t construct(node_t &&xformula)
     {
-        //assert(xformula && "Empty inner formula");
         if (!xformula)
         {
-            // TODO: log
-            std::cout << "ERROR: Empty inner formula\n";
+            assert(xformula && "Empty inner formula");
             return nullptr;
         }
 
@@ -237,11 +228,9 @@ public:
 
     static node_t construct(node_t &&left, node_t &&right)
     {
-        //assert(left && right && "Empty inner formula");
         if (!left || !right)
         {
-            // TODO: log
-            std::cout << "ERROR: Empty inner " << (left ? "" : "left") << (right ? "" : "right") <<  " formula\n";
+            assert(left && right && "Empty inner formula");
             return nullptr;
         }
 
@@ -296,7 +285,7 @@ bool operator== (const ltl::node_t& left, const ltl::node_t& right)
             case ltl::kind::until:
                 return fn.operator()<ltl_until>();
             default:
-                assert("Incorrect proposition during comparing");
+                assert(!"Incorrect proposition during comparing");
         }
     }
 

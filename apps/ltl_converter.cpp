@@ -1,8 +1,9 @@
-#include <iostream>
-#include <fstream>
 #include "utils/reader.hpp"
 #include "ltl/closure.hpp"
 #include "utils/dot_representation.hpp"
+
+#include <iostream>
+#include <fstream>
 
 int main()
 {
