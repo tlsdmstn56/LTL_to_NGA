@@ -1,5 +1,5 @@
-##################################### libLtl.a #####################################
-add_library(Ltl STATIC
+##################################### libLtl.so #####################################
+add_library(Ltl SHARED
         ltl/ltl.cpp
         ltl/closure.cpp
         utils/reader.cpp

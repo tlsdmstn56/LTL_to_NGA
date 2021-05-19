@@ -7,6 +7,6 @@ file(INSTALL
         ${LTL_BINARY_DIR}
 )
 
-##################################### emptiness_dfs #####################################
+##################################### ltl_converter #####################################
 add_executable(ltl_converter ltl_converter.cpp)
 target_link_libraries(ltl_converter PRIVATE Ltl)
