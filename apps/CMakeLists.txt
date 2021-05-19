@@ -2,6 +2,7 @@ set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LTL_BINARY_DIR})
 
 file(INSTALL
         test.txt
+        run.sh
     DESTINATION
         ${LTL_BINARY_DIR}
 )

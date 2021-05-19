@@ -1,20 +1,25 @@
 #include <iostream>
+#include <fstream>
 #include "utils/reader.hpp"
 #include "ltl/closure.hpp"
+#include "utils/dot_representation.hpp"
 
 int main()
 {
-    auto algo = ltl::converting::construct(reader::read_formula());
-    auto automaton = algo->get_automaton_representation();
+    // yes, let it be constant. No time to play we user
+    const std::string file_path{"dot.gv"};
 
-    // print all states with its indexes
-    for (const auto initial_index : std::get<0>(automaton))
+    const auto algo = ltl::converting::construct(reader::read_formula());
+    const auto [states, dot] = dot::convert_to_dot(algo);
+
     {
-        std::cout << initial_index << ": { ";
-        for (const auto &node : algo->get_concrete_state(initial_index))
-            std::cout << node->to_string() << "; ";
-        std::cout << "}\n";
+        // save Graph to the file
+        std::ofstream out_file{file_path};
+        out_file << dot;
     }
+
+    for (const auto &it : states)
+        std::cout << it << "\n";
 
     return 0;
 }
