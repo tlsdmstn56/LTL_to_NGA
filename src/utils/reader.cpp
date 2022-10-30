@@ -1,4 +1,5 @@
 #include "utils/reader.hpp"
+#include <cassert>
 
 namespace reader
 {

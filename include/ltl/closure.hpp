@@ -41,7 +41,7 @@ public:
                std::map<size_t, indexes_container_t>> get_automaton_representation() const;
 
     constexpr static bool implication(bool a, bool b);
-    constexpr static bool is_in(const state_t &bunch, const ltl::node_t &node);
+    static bool is_in(const state_t &bunch, const ltl::node_t &node);
 
 private:
     explicit converting(ltl::node_t&& formula);

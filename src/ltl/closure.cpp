@@ -1,6 +1,7 @@
 #include "ltl/closure.hpp"
 
 #include <algorithm>
+#include <cassert>
 
 namespace ltl
 {
@@ -37,7 +38,7 @@ constexpr bool converting::implication(const bool a, const bool b)
     return !a || b;
 }
 
-constexpr bool converting::is_in(const state_t &bunch, const ltl::node_t &node)
+bool converting::is_in(const state_t &bunch, const ltl::node_t &node)
 {
     return std::any_of(bunch.begin(), bunch.end(), [&node](const ltl::node_t &it) -> bool { return it == node; });
 }

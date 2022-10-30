@@ -1,6 +1,7 @@
 #include "ltl/ltl.hpp"
 
 #include <utility>
+#include <cassert>
 
 // TODO: make a common storage for identical ltl-objects
 
